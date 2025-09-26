@@ -135,4 +135,127 @@ FROM (
 GROUP BY 1
 ORDER BY 2 DESC;
 
--- (etc. – continue adding freight, delivery time, and payment type queries similarly)
+-- 4.3 Total & Average freight value per state
+SELECT customer_state,
+       ROUND(AVG(TT.freight_sum), 1) AS avg_freight_val,
+       ROUND(SUM(TT.freight_sum), 1) AS total_freight_val
+FROM (
+    SELECT O.order_id, C.customer_state, 
+           ROUND(SUM(F.freight_value), 2) AS freight_sum
+    FROM `Target.orders` AS O
+    INNER JOIN `Target.customers` AS C 
+        ON O.customer_id = C.customer_id
+    INNER JOIN `Target.order_items` AS F 
+        ON O.order_id = F.order_id
+    GROUP BY 1,2
+) AS TT
+GROUP BY 1
+ORDER BY 3 DESC;
+
+
+---------------------------------------------------------
+-- 5. Delivery & Logistics
+---------------------------------------------------------
+
+-- 5.1 Delivery time and difference from estimated date
+SELECT order_id,
+       DATE_DIFF(order_delivered_customer_date, order_purchase_timestamp, DAY) AS time_to_deliver,
+       DATE_DIFF(order_estimated_delivery_date, order_delivered_customer_date, DAY) AS diff_estimated_delivery
+FROM `Target.orders`;
+
+-- 5.2 Top 5 states with highest average freight value
+SELECT customer_state, ROUND(AVG(TT.freight_sum), 1) AS avg_freight_val
+FROM (
+    SELECT O.order_id, C.customer_state,
+           ROUND(SUM(F.freight_value), 2) AS freight_sum
+    FROM `Target.orders` AS O
+    INNER JOIN `Target.customers` AS C ON O.customer_id = C.customer_id
+    INNER JOIN `Target.order_items` AS F ON O.order_id = F.order_id
+    GROUP BY 1,2
+) AS TT
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 5;
+
+-- 5.2b Top 5 states with lowest average freight value
+SELECT customer_state, ROUND(AVG(TT.freight_sum), 1) AS avg_freight_val
+FROM (
+    SELECT O.order_id, C.customer_state,
+           ROUND(SUM(F.freight_value), 2) AS freight_sum
+    FROM `Target.orders` AS O
+    INNER JOIN `Target.customers` AS C ON O.customer_id = C.customer_id
+    INNER JOIN `Target.order_items` AS F ON O.order_id = F.order_id
+    GROUP BY 1,2
+) AS TT
+GROUP BY 1
+ORDER BY 2 ASC
+LIMIT 5;
+
+-- 5.3 Top 5 states with the lowest average delivery time
+SELECT customer_state, ROUND(AVG(T.time_to_deliver), 1) AS average_delivery_time
+FROM (
+    SELECT O.order_id, C.customer_state,
+           DATE_DIFF(O.order_delivered_customer_date, O.order_purchase_timestamp, DAY) AS time_to_deliver
+    FROM `Target.orders` AS O
+    INNER JOIN `Target.customers` AS C ON O.customer_id = C.customer_id
+) AS T
+GROUP BY 1
+ORDER BY 2
+LIMIT 5;
+
+-- 5.3b Top 5 states with the highest average delivery time
+SELECT customer_state, ROUND(AVG(T.time_to_deliver), 1) AS average_delivery_time
+FROM (
+    SELECT O.order_id, C.customer_state,
+           DATE_DIFF(O.order_delivered_customer_date, O.order_purchase_timestamp, DAY) AS time_to_deliver
+    FROM `Target.orders` AS O
+    INNER JOIN `Target.customers` AS C ON O.customer_id = C.customer_id
+) AS T
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 5;
+
+-- 5.4 Top 5 states where delivery is faster than estimated
+SELECT TT.customer_state,
+       ROUND(TT.avg_estimated - TT.avg_actual, 1) AS avg_diff_days
+FROM (
+    SELECT C.customer_state,
+           ROUND(AVG(DATE_DIFF(O.order_delivered_customer_date, O.order_purchase_timestamp, DAY)), 1) AS avg_actual,
+           ROUND(AVG(DATE_DIFF(O.order_estimated_delivery_date, O.order_purchase_timestamp, DAY)), 1) AS avg_estimated
+    FROM `Target.orders` AS O
+    INNER JOIN `Target.customers` AS C ON O.customer_id = C.customer_id
+    GROUP BY 1
+) AS TT
+ORDER BY avg_diff_days DESC
+LIMIT 5;
+
+
+---------------------------------------------------------
+-- 6. Payments Analysis
+---------------------------------------------------------
+
+-- 6.1 Month-on-month orders by payment type
+SELECT payment_type, yearmonth, COUNT(order_id) AS no_of_orders,
+       CONCAT(ROUND(((no_of_orders - LAG(no_of_orders) OVER (PARTITION BY payment_type ORDER BY yearmonth)) * 100.0 / 
+                     LAG(no_of_orders) OVER (PARTITION BY payment_type ORDER BY yearmonth)), 2), "%") AS growth
+FROM (
+    SELECT P.payment_type,
+           FORMAT_DATE("%Y-%m", O.order_purchase_timestamp) AS yearmonth,
+           COUNT(O.order_id) AS no_of_orders
+    FROM `Target.orders` AS O
+    INNER JOIN `Target.payments` AS P ON O.order_id = P.order_id
+    GROUP BY 1,2
+) AS T
+ORDER BY 1,2;
+
+-- 6.2 Orders by payment installments
+SELECT P.payment_installments, COUNT(O.order_id) AS no_of_orders
+FROM `Target.orders` AS O
+INNER JOIN `Target.payments` AS P ON O.order_id = P.order_id
+GROUP BY 1
+ORDER BY 1;
+
+-- ======================================================
+------------------------ END ----------------------------
+-- ======================================================
+
